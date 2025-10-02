@@ -11,21 +11,23 @@ export default function LoginSelection() {
     restaurantName: "Smart Café",
     logoURL: "",
     address: "",
-    phone: ""
+    phone: "",
+    contact: ""
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const settingsDoc = await getDoc(doc(db, "settings", "general"));
+        const settingsDoc = await getDoc(doc(db, "settings", "app"));
         if (settingsDoc.exists()) {
           const data = settingsDoc.data();
           setSettings({
             restaurantName: data.restaurantName || "Smart Café",
             logoURL: data.logoURL || "",
             address: data.address || "",
-            phone: data.phone || ""
+            phone: data.phone || "",
+            contact: data.contact || ""
           });
         }
       } catch (error) {
@@ -38,6 +40,17 @@ export default function LoginSelection() {
     fetchSettings();
   }, []);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-700 p-6 sm:p-12">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl shadow-2xl p-6 sm:p-10 max-w-md sm:max-w-lg w-full text-center border border-white/20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-white/80">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-700 p-6 sm:p-12">
       <div className="bg-white/10 backdrop-blur-lg rounded-3xl shadow-2xl p-6 sm:p-10 max-w-md sm:max-w-lg w-full text-center border border-white/20">
@@ -46,26 +59,34 @@ export default function LoginSelection() {
             <img 
               src={settings.logoURL} 
               alt={settings.restaurantName} 
-              className="h-20 w-auto object-contain"
+              className="h-52 w-auto object-contain"
             />
           </div>
         )}
         <h1 className="text-2xl sm:text-4xl font-extrabold text-white mb-6 tracking-wide leading-tight">
           Welcome to {settings.restaurantName}
         </h1>
-        <p className="text-white/80 mb-10 text-sm sm:text-base leading-relaxed">
-          Select your role to proceed with secure login.
-        </p>
         {settings.address && (
-          <p className="text-white/70 text-sm mb-2">
-            {settings.address}
+          <p className="text-white/70 text-sm mb-2 flex items-center justify-center">
+            <span className="mr-2">📍</span>
+            <span>{settings.address}</span>
           </p>
         )}
         {settings.phone && (
-          <p className="text-white/70 text-sm mb-6">
-            {settings.phone}
+          <p className="text-white/70 text-sm mb-2 flex items-center justify-center">
+            <span className="mr-2">📞</span>
+            <span>{settings.phone}</span>
           </p>
         )}
+        {settings.contact && (
+          <p className="text-white/70 text-sm mb-6 flex items-center justify-center">
+            <span className="mr-2">✉️</span>
+            <span>{settings.contact}</span>
+          </p>
+        )}
+        <p className="text-white/80 mb-6 text-sm sm:text-base leading-relaxed">
+          Select your role to proceed with secure login.
+        </p>
 
         <div className="flex flex-col sm:flex-row gap-5 sm:gap-8">
           <button

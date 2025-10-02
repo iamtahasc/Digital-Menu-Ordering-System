@@ -49,34 +49,64 @@ const StaffDashboard = () => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [audioInitialized, setAudioInitialized] = useState(false);
 
   // Firestore collection references
   const ordersCol = useMemo(() => collection(db, "orders"), []);
   const activityLogsCol = useMemo(() => collection(db, "activityLogs"), []);
 
-  // Play notification sound
+  // Initialize audio context on user interaction
+  const initializeAudio = () => {
+    if (!audioInitialized) {
+      // Create a temporary audio context to unlock audio
+      const tempAudio = new Audio();
+      tempAudio.src = '/staff.mp3';
+      tempAudio.play().then(() => {
+        tempAudio.pause();
+        tempAudio.currentTime = 0;
+      }).catch(() => {
+        // Expected to fail since we're just trying to unlock audio
+      });
+      setAudioInitialized(true);
+    }
+  };
+
+  // Play notification sound (prefer staff.mp3; fallback to tone)
   const playNotificationSound = () => {
     if (!soundEnabled) return;
-    
+
     try {
-      // Create a simple notification sound using Web Audio API
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-      oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-      
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
+      const audio = new Audio('/staff.mp3');
+      audio.volume = 1.0;
+      // Handle autoplay policies
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.warn('Audio play failed:', error);
+          // Try again with user interaction
+          document.body.addEventListener('click', () => {
+            audio.play().catch(e => console.warn('Audio play failed on retry:', e));
+          }, { once: true });
+        });
+      }
     } catch (error) {
-      console.log("Audio not supported");
+      console.warn('Error playing staff audio:', error);
+      // Fallback to tone
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } catch (fallbackError) {
+        console.warn('Audio fallback also failed:', fallbackError);
+      }
     }
   };
 
@@ -95,18 +125,52 @@ const StaffDashboard = () => {
     }
   };
 
-  // Real-time data listeners
+  // Auth guard + Real-time data listeners
   useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        navigate("/StaffLogin");
+        return;
+      }
+      try {
+        const staffDoc = await import("firebase/firestore").then(m => m.getDoc(m.doc(db, "staff", user.uid)));
+        const data = staffDoc?.data?.() || {};
+        const role = String(data.role || "").toLowerCase();
+        if (!(role === "staff" || role === "admin")) {
+          navigate("/");
+        }
+      } catch (_) {
+        navigate("/");
+      }
+    });
+
+    // Initialize audio on first user interaction
+    const handleFirstInteraction = () => {
+      initializeAudio();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    
+    document.addEventListener('click', handleFirstInteraction);
+    document.addEventListener('touchstart', handleFirstInteraction);
+
+    // Improved Firestore listener without lastOrderIds dependency
     const unsubOrders = onSnapshot(ordersCol, (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       
-      // Check for new orders
-      const incomingIds = new Set(data.map((o) => o.id));
+      // Check for new orders (using a ref to track previous orders)
+      const previousOrdersRef = typeof window !== 'undefined' && window._staffDashboardPreviousOrders 
+        ? window._staffDashboardPreviousOrders 
+        : [];
       
-      // Only check for new orders if we have previous orders to compare
-      if (lastOrderIds.size > 0 && data.length > 0) {
+      // Find new orders
+      const previousOrderIds = new Set(previousOrdersRef.map(order => order.id));
+      const currentOrderIds = new Set(data.map(order => order.id));
+      
+      // Check for new orders
+      if (previousOrderIds.size > 0) {
         for (const order of data) {
-          if (!lastOrderIds.has(order.id)) {
+          if (!previousOrderIds.has(order.id)) {
             const notificationText = `New order${order.tableNumber ? ` at table ${order.tableNumber}` : ""}`;
             setNotification(notificationText);
             playNotificationSound();
@@ -116,7 +180,12 @@ const StaffDashboard = () => {
           }
         }
       }
-      setLastOrderIds(incomingIds);
+      
+      // Store current orders for next comparison
+      if (typeof window !== 'undefined') {
+        window._staffDashboardPreviousOrders = data;
+      }
+      
       // Sort: non-completed first (newest first), then completed (newest first)
       const toMs = (o) => {
         const d = (o.updatedAt?.toDate?.() || o.timestamp?.toDate?.() || o.createdAt?.toDate?.() || null);
@@ -135,8 +204,15 @@ const StaffDashboard = () => {
 
     return () => {
       unsubOrders();
+      unsubAuth && unsubAuth();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+      // Clean up window reference
+      if (typeof window !== 'undefined') {
+        delete window._staffDashboardPreviousOrders;
+      }
     };
-  }, [ordersCol, lastOrderIds]);
+  }, [ordersCol, navigate]); // Removed lastOrderIds from dependency array
 
   // Handle order status update
   const handleStatusChange = async (orderId, newStatus) => {
@@ -329,8 +405,6 @@ const StaffDashboard = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
-
-
         {/* Stats Cards */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}

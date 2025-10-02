@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Test</title>
+</head>
+<body>
+    <h1>Audio Test</h1>
+    
+    <h2>Customer Audio</h2>
+    <audio controls>
+        <source src="/customer.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    
+    <h2>Staff Audio</h2>
+    <audio controls>
+        <source src="/staff.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    
+    <script>
+        // Test playing audio programmatically
+        function testCustomerAudio() {
+            const audio = new Audio('/customer.mp3');
+            audio.play().then(() => {
+                console.log('Customer audio played successfully');
+            }).catch(error => {
+                console.error('Error playing customer audio:', error);
+            });
+        }
+        
+        function testStaffAudio() {
+            const audio = new Audio('/staff.mp3');
+            audio.play().then(() => {
+                console.log('Staff audio played successfully');
+            }).catch(error => {
+                console.error('Error playing staff audio:', error);
+            });
+        }
+    </script>
+    
+    <br><br>
+    <button onclick="testCustomerAudio()">Test Customer Audio</button>
+    <button onclick="testStaffAudio()">Test Staff Audio</button>
+</body>
+</html>

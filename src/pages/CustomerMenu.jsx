@@ -3,8 +3,7 @@ import { motion } from 'framer-motion';
 import { ShoppingCart, Plus, Minus, X, Clock, CheckCircle, AlertCircle, FileText } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { generateOrderBillPDF } from '../utils/pdf';
 
 const CustomerMenu = () => {
   // Get table number from URL
@@ -29,6 +28,7 @@ const CustomerMenu = () => {
     address: "",
     phone: ""
   });
+  const [audioInitialized, setAudioInitialized] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,9 +39,35 @@ const CustomerMenu = () => {
   const menuCol = useMemo(() => collection(db, "menu"), []);
   const ordersCol = useMemo(() => collection(db, "orders"), []);
 
+  // Initialize audio context on user interaction
+  const initializeAudio = () => {
+    if (!audioInitialized) {
+      // Create a temporary audio context to unlock audio
+      const tempAudio = new Audio();
+      tempAudio.src = '/customer.mp3';
+      tempAudio.play().then(() => {
+        tempAudio.pause();
+        tempAudio.currentTime = 0;
+      }).catch(() => {
+        // Expected to fail since we're just trying to unlock audio
+      });
+      setAudioInitialized(true);
+    }
+  };
+
   // Load active orders for this table - simple real-time updates
   useEffect(() => {
     if (!tableNumber) return;
+    
+    // Initialize audio on first user interaction
+    const handleFirstInteraction = () => {
+      initializeAudio();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    
+    document.addEventListener('click', handleFirstInteraction);
+    document.addEventListener('touchstart', handleFirstInteraction);
     
     // Only show orders that are not completed or cancelled
     const q = query(ordersCol, where("tableNumber", "==", tableNumber));
@@ -58,7 +84,11 @@ const CustomerMenu = () => {
       setOrdersForTable(activeOrders);
     });
     
-    return () => unsub();
+    return () => {
+      unsub();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+    };
   }, [tableNumber, ordersCol]);
 
   // Load menu and settings
@@ -71,8 +101,8 @@ const CustomerMenu = () => {
     // Load settings
     const loadSettings = async () => {
       try {
-        const settingsDoc = doc(db, "settings", "general");
-        const settingsSnap = await getDoc(settingsDoc);
+        const settingsDocRef = doc(db, "settings", "app");
+        const settingsSnap = await getDoc(settingsDocRef);
         if (settingsSnap.exists()) {
           const data = settingsSnap.data();
           setSettings({
@@ -191,6 +221,24 @@ const CustomerMenu = () => {
       setOrderId(docRef.id);
       setOrderPlaced(true);
       setOrderStatus('Pending');
+      // Play customer success sound (best-effort; ignore errors)
+      try {
+        const audio = new Audio('/customer.mp3');
+        audio.volume = 1.0;
+        // Handle autoplay policies
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.warn('Audio play failed:', error);
+            // Try again with user interaction
+            document.body.addEventListener('click', () => {
+              audio.play().catch(e => console.warn('Audio play failed on retry:', e));
+            }, { once: true });
+          });
+        }
+      } catch (error) {
+        console.warn('Error playing customer audio:', error);
+      }
       setCart([]);
       setShowCart(false);
       setShowCheckout(false);
@@ -219,145 +267,7 @@ const CustomerMenu = () => {
   // Generate bill for served orders
   const generateBill = async (order) => {
     try {
-      // Calculate subtotal
-      const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      
-      // Calculate tax
-      const taxRate = order.taxPercent || settings.taxPercent || 5;
-      const taxAmount = (subtotal * taxRate) / 100;
-      
-      // Calculate total
-      const total = subtotal + taxAmount;
-      
-      const currentDate = new Date().toLocaleDateString();
-      const currentTime = new Date().toLocaleTimeString();
-      
-      // Create a temporary div for the bill content with professional styling
-      const billContent = document.createElement('div');
-      billContent.style.cssText = `
-        width: 400px;
-        padding: 20px;
-        background: white;
-        color: black;
-        font-family: Arial, sans-serif;
-        line-height: 1.4;
-      `;
-      
-      billContent.innerHTML = `
-        <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 15px;">
-          ${settings.logoURL ? `<img src="${settings.logoURL}" alt="${settings.restaurantName}" style="max-height: 60px; margin-bottom: 10px;">` : ''}
-          <h1 style="margin: 0; font-size: 24px; color: #333;">${settings.restaurantName || 'Smart Café'}</h1>
-          <p style="margin: 5px 0; color: #666;">Restaurant Bill</p>
-          ${settings.address ? `<p style="margin: 5px 0; color: #666;">${settings.address}</p>` : ''}
-          ${settings.phone ? `<p style="margin: 5px 0; color: #666;">Phone: ${settings.phone}</p>` : ''}
-          ${settings.contact ? `<p style="margin: 5px 0; color: #666;">Email: ${settings.contact}</p>` : ''}
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Bill No:</strong></span>
-            <span>#${order.id.slice(-8)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Table No:</strong></span>
-            <span>${order.tableNumber || 'N/A'}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Customer:</strong></span>
-            <span>${order.customerName || 'Walk-in Customer'}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Date:</strong></span>
-            <span>${currentDate}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Time:</strong></span>
-            <span>${currentTime}</span>
-          </div>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">Order Items</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr style="background: #f5f5f5;">
-                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Item</th>
-                <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Qty</th>
-                <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Price</th>
-                <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${order.items.map(item => `
-                <tr>
-                  <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name || 'Item'}</td>
-                  <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">${item.quantity || 1}</td>
-                  <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">₹${(item.price || 0).toFixed(2)}</td>
-                  <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-        
-        <div style="border-top: 2px solid #333; padding-top: 15px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span><strong>Subtotal:</strong></span>
-            <span>₹${subtotal.toFixed(2)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span><strong>Tax (${taxRate}%):</strong></span>
-            <span>₹${taxAmount.toFixed(2)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; border-top: 1px solid #333; padding-top: 8px;">
-            <span>Total Amount:</span>
-            <span>₹${total.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        <div style="text-align: center; margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; color: #666;">
-          <p style="margin: 5px 0;">Thank you for dining with us!</p>
-          <p style="margin: 5px 0; font-size: 12px;">Generated on ${currentDate} at ${currentTime}</p>
-        </div>
-      `;
-      
-      // Append to body temporarily
-      document.body.appendChild(billContent);
-      
-      // Generate PDF with better quality
-      const canvas = await html2canvas(billContent, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff'
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      const imgWidth = 210;
-      const pageHeight = 295;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      // Clean up
-      document.body.removeChild(billContent);
-      
-      // Download PDF
-      const fileName = `Bill_${order.id.slice(-8)}_${order.tableNumber || 'N/A'}_${currentDate.replace(/\//g, '-')}.pdf`;
-      pdf.save(fileName);
-      
+      await generateOrderBillPDF({ order, settings, title: 'Restaurant Bill' });
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Error generating PDF bill. Please try again.');

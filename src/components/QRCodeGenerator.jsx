@@ -19,6 +19,20 @@ const QRCodeGenerator = () => {
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       console.error('Failed to copy:', error);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = generateQRUrl();
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (fallbackError) {
+        console.error('Fallback copy failed:', fallbackError);
+        alert('Copy failed. Please copy manually: ' + generateQRUrl());
+      }
+      document.body.removeChild(textArea);
     }
   };
 

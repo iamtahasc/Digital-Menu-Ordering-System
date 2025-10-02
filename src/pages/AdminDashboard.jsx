@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useMemo as useReactMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, app, auth } from "../firebaseConfig";
 import {
@@ -16,13 +17,13 @@ import {
 } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { generateOrderBillPDF } from "../utils/pdf";
 import QRCodeGenerator from "../components/QRCodeGenerator";
 
 
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("orders");
   const [orders, setOrders] = useState([]);
   const [menu, setMenu] = useState([]);
@@ -39,6 +40,7 @@ export default function AdminDashboard() {
   // Settings
   const [settings, setSettings] = useState({ taxPercent: 5, restaurantName: "Smart Café", logoURL: "", contact: "", address: "", phone: "" });
   const [savingSettings, setSavingSettings] = useState(false);
+  const [isEditingSettings, setIsEditingSettings] = useState(false);
 
   // Staff
   const [staff, setStaff] = useState([]);
@@ -62,6 +64,25 @@ export default function AdminDashboard() {
 
   // Initialize settings document if it doesn't exist
   useEffect(() => {
+    // Auth/role guard
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        navigate("/AdminLogin");
+        return;
+      }
+      try {
+        const staffSnap = await getDoc(doc(db, "staff", user.uid));
+        const data = staffSnap.data() || {};
+        const role = String(data.role || "").toLowerCase();
+        const isAdmin = role === "admin" || data.isAdmin === true;
+        if (!isAdmin) {
+          navigate("/");
+        }
+      } catch (_) {
+        navigate("/");
+      }
+    });
+
     const initializeSettings = async () => {
       try {
         const settingsDoc = await getDoc(settingsDocRef);
@@ -84,7 +105,10 @@ export default function AdminDashboard() {
     };
     
     initializeSettings();
-  }, [settingsDocRef]);
+    return () => {
+      unsubAuth && unsubAuth();
+    };
+  }, [settingsDocRef, navigate]);
 
   // Realtime listeners
   useEffect(() => {
@@ -112,6 +136,9 @@ export default function AdminDashboard() {
       nonCompleted.sort((a, b) => toMs(b) - toMs(a));
       completed.sort((a, b) => toMs(b) - toMs(a));
       setOrders([...nonCompleted, ...completed]);
+    }, (error) => {
+      console.error("Orders listener error:", error);
+      alert("Error loading orders: " + error.message);
     });
     
     const unsubMenu = onSnapshot(menuCol, (snap) => {
@@ -120,6 +147,7 @@ export default function AdminDashboard() {
     
     const unsubSettings = onSnapshot(settingsDocRef, (snap) => {
       if (snap.exists()) {
+        if (isEditingSettings) return; // don't override local edits while typing
         const s = snap.data();
         setSettings({
           taxPercent: typeof s.taxPercent === "number" ? s.taxPercent : 5,
@@ -142,7 +170,7 @@ export default function AdminDashboard() {
       unsubSettings();
       unsubStaff();
     };
-  }, [ordersCol, menuCol, settingsDocRef, staffCol, lastOrderIds]);
+  }, [ordersCol, menuCol, settingsDocRef, staffCol, lastOrderIds, isEditingSettings]);
 
   // Order status update
   const logActivity = async (action, details) => {
@@ -325,7 +353,7 @@ export default function AdminDashboard() {
         return;
       }
       
-      const taxValue = Number(settings.taxPercent);
+      const taxValue = settings.taxPercent === "" ? 0 : Number(settings.taxPercent);
       if (isNaN(taxValue) || taxValue < 0) {
         alert("Please enter a valid tax percentage");
         setSavingSettings(false);
@@ -345,9 +373,10 @@ export default function AdminDashboard() {
       
       await logActivity("settings_update", {});
       alert("Settings saved successfully!");
+      setIsEditingSettings(false);
     } catch (e) {
       console.error("Failed to save settings", e);
-      alert("Could not save settings: " + e.message);
+      alert((e && e.message) ? ("Could not save settings: " + e.message) : "Could not save settings");
     } finally {
       setSavingSettings(false);
     }
@@ -420,133 +449,7 @@ export default function AdminDashboard() {
 
   const generateBillPDF = async (order) => {
     try {
-      const { subtotal, tax, total } = computeBill(order);
-      const currentDate = new Date().toLocaleDateString();
-      const currentTime = new Date().toLocaleTimeString();
-      
-      // Create a temporary div for the bill content
-      const billContent = document.createElement('div');
-      billContent.style.cssText = `
-        width: 400px;
-        padding: 20px;
-        background: white;
-        color: black;
-        font-family: Arial, sans-serif;
-        line-height: 1.4;
-      `;
-      
-      billContent.innerHTML = `
-        <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 15px;">
-          <h1 style="margin: 0; font-size: 24px; color: #333;">${settings.restaurantName || 'Smart Café'}</h1>
-          <p style="margin: 5px 0; color: #666;">Restaurant Bill</p>
-          ${settings.contact ? `<p style="margin: 5px 0; color: #666;">${settings.contact}</p>` : ''}
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Bill No:</strong></span>
-            <span>#${order.id.slice(-8)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Table No:</strong></span>
-            <span>${order.tableNumber || 'N/A'}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Customer:</strong></span>
-            <span>${order.customerName || 'Walk-in Customer'}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Date:</strong></span>
-            <span>${currentDate}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <span><strong>Time:</strong></span>
-            <span>${currentTime}</span>
-          </div>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">Order Items</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr style="background: #f5f5f5;">
-                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Item</th>
-                <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Qty</th>
-                <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Price</th>
-                <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${Array.isArray(order.items) ? order.items.map(item => `
-                <tr>
-                  <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name || 'Item'}</td>
-                  <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">${item.quantity || 1}</td>
-                  <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">₹${(item.price || 0).toFixed(2)}</td>
-                  <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
-                </tr>
-              `).join('') : '<tr><td colspan="4" style="padding: 8px; text-align: center;">No items</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-        
-        <div style="border-top: 2px solid #333; padding-top: 15px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span><strong>Subtotal:</strong></span>
-            <span>₹${subtotal.toFixed(2)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span><strong>Tax (${settings.taxPercent || 5}%):</strong></span>
-            <span>₹${tax.toFixed(2)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; border-top: 1px solid #333; padding-top: 8px;">
-            <span>Total Amount:</span>
-            <span>₹${total.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        <div style="text-align: center; margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; color: #666;">
-          <p style="margin: 5px 0;">Thank you for dining with us!</p>
-          <p style="margin: 5px 0; font-size: 12px;">Generated on ${currentDate} at ${currentTime}</p>
-        </div>
-      `;
-      
-      // Append to body temporarily
-      document.body.appendChild(billContent);
-      
-      // Generate PDF
-      const canvas = await html2canvas(billContent, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff'
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      const imgWidth = 210;
-      const pageHeight = 295;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      // Clean up
-      document.body.removeChild(billContent);
-      
-      // Download PDF
-      const fileName = `Bill_${order.id.slice(-8)}_${order.tableNumber || 'N/A'}_${currentDate.replace(/\//g, '-')}.pdf`;
-      pdf.save(fileName);
-      
+      await generateOrderBillPDF({ order, settings, title: 'Restaurant Bill' });
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Error generating PDF bill. Please try again.');
@@ -764,7 +667,9 @@ export default function AdminDashboard() {
                 })}
                 {filteredOrders.length === 0 && (
                   <tr>
-                    <td className="px-3 py-6 text-center text-white/70" colSpan={11}>No orders found</td>
+                    <td className="px-3 py-6 text-center text-white/70" colSpan={11}>
+                      {orders.length === 0 ? "No orders in database" : "No orders match current filters"}
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -836,7 +741,7 @@ export default function AdminDashboard() {
         {activeTab === "settings" && (
         <section className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-xl p-4 sm:p-6 text-white">
           <h2 className="text-xl font-bold mb-4">Settings</h2>
-          <form onSubmit={saveSettings} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <form onSubmit={saveSettings} className="grid grid-cols-1 sm:grid-cols-2 gap-4" onChange={() => setIsEditingSettings(true)}>
             <div>
               <label className="block mb-1 text-white/80">Restaurant Name</label>
               <input 
@@ -851,8 +756,8 @@ export default function AdminDashboard() {
               <input 
                 type="number" 
                 step="0.01" 
-                value={settings.taxPercent} 
-                onChange={(e) => setSettings({ ...settings, taxPercent: e.target.value })} 
+                value={settings.taxPercent}
+                onChange={(e) => setSettings({ ...settings, taxPercent: e.target.value === '' ? '' : Number(e.target.value) })} 
                 className="w-full rounded-xl bg-white/10 border border-white/30 px-4 py-3 text-white" 
                 required
               />
