@@ -68,19 +68,19 @@ export default function LoginSelection() {
         </h1>
         {settings.address && (
           <p className="text-white/70 text-sm mb-2 flex items-center justify-center">
-            <span className="mr-2">📍</span>
+            <span className="mr-2" role="img" aria-label="location">📍</span>
             <span>{settings.address}</span>
           </p>
         )}
         {settings.phone && (
           <p className="text-white/70 text-sm mb-2 flex items-center justify-center">
-            <span className="mr-2">📞</span>
+            <span className="mr-2" role="img" aria-label="phone">📞</span>
             <span>{settings.phone}</span>
           </p>
         )}
         {settings.contact && (
           <p className="text-white/70 text-sm mb-6 flex items-center justify-center">
-            <span className="mr-2">✉️</span>
+            <span className="mr-2" role="img" aria-label="email">✉️</span>
             <span>{settings.contact}</span>
           </p>
         )}

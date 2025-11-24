@@ -46,17 +46,27 @@ A modern, responsive restaurant ordering system that allows customers to browse 
 
 ### Environment Setup
 
-Create a `.env` file in the project root with your Firebase credentials:
+1. Copy the `.env.example` file to create your own `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
 
-```env
-VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
-VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef123456
-VITE_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
-```
+2. Update the `.env` file with your Firebase project credentials:
+
+   ```env
+   VITE_FIREBASE_API_KEY=your_actual_api_key_here
+   VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your_actual_project_id_here
+   VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+   VITE_FIREBASE_MESSAGING_SENDER_ID=your_actual_messaging_sender_id
+   VITE_FIREBASE_APP_ID=your_actual_app_id_here
+   VITE_FIREBASE_MEASUREMENT_ID=your_actual_measurement_id_here
+   ```
+
+3. For development, the app will use these environment variables
+4. For production deployment, you can set these variables in your deployment platform's environment settings
+
+> **Note**: The `.env` file is included in `.gitignore` and will not be committed to version control for security reasons.
 
 ### Installation
 

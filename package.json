@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "env-check": "node src/scripts/env-check.js"
   },
   "dependencies": {
     "firebase": "^12.1.0",
