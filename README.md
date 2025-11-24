@@ -144,7 +144,7 @@ The system supports three user roles:
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. Unauthorized copying, reproduction, or redistribution of this project without proper credit to the original author is strictly prohibited -see the [LICENSE](LICENSE) file for details.
 
 ## 👥 Authors
 
