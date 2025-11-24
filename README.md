@@ -62,7 +62,7 @@ VITE_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/digital-menu-ordering-system.git
+   git clone https://github.com/iamtahasc/digital-menu-ordering-system.git
    ```
 
 2. Navigate to the project directory:
@@ -148,7 +148,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Authors
 
-- [Your Name](https://github.com/yourusername) - Lead Developer
+- Taha Contractor (https://github.com/iamtahasc) - Lead Developer
 
 ## 🙏 Acknowledgments
 
